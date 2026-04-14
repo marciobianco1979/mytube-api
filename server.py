@@ -59,7 +59,6 @@ def webhook():
     print("🔥 WEBHOOK RECEBIDO:", data)
 
     try:
-        # ✅ considerar pago se veio webhook
         invoice_slug = data.get("invoice_slug")
 
         if not invoice_slug:
@@ -67,34 +66,42 @@ def webhook():
             return "ok", 200
 
         # carregar pendentes
-        pendentes = carregar("pendentes.json")
+        pendentes = carregar(PENDENTES)
 
-        email = None
-        novo_pendentes = []
-
-        for p in pendentes:
-            # ⚠️ AQUI É O PROBLEMA: invoice nunca vai bater
-            # então vamos liberar o primeiro da fila (temporário)
-            email = p["email"]
-            continue
-
-        if not email:
-            print("❌ nenhum pendente encontrado")
+        if not pendentes:
+            print("❌ nenhum pendente")
             return "ok", 200
 
+        # 🔥 pega o PRIMEIRO da fila (mais seguro que antes)
+        cliente = pendentes[0]
+        email = cliente["email"]
+
+        # remove da fila
+        pendentes.pop(0)
+        salvar(PENDENTES, pendentes)
+
         # carregar usuarios
-        usuarios = carregar("usuarios.json")
+        usuarios = carregar(USUARIOS)
 
         nova_data = (datetime.now() + timedelta(days=30)).isoformat()
 
-        usuarios.append({
-            "email": email,
-            "expira_em": nova_data
-        })
+        # verifica se já existe (renovação)
+        encontrado = False
+        for u in usuarios:
+            if u["email"] == email:
+                u["expira_em"] = nova_data
+                encontrado = True
+                print("🔁 Usuário renovado:", email)
+                break
 
-        salvar("usuarios.json", usuarios)
+        if not encontrado:
+            usuarios.append({
+                "email": email,
+                "expira_em": nova_data
+            })
+            print("✅ Novo usuário liberado:", email)
 
-        print("✅ LIBERADO:", email)
+        salvar(USUARIOS, usuarios)
 
     except Exception as e:
         print("❌ ERRO WEBHOOK:", e)
@@ -119,6 +126,9 @@ def validar():
 
     return jsonify({"status": "nao_encontrado"})
 
-# ================= RUN =================
+# ================= RUN (IMPORTANTE PARA RENDER) =================
 
-app.run(host="0.0.0.0", port=5000)
+import os
+port = int(os.environ.get("PORT", 5000))
+
+app.run(host="0.0.0.0", port=port)
